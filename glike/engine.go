@@ -12,8 +12,8 @@ type Engine struct {
 	RouteGroup
 
 	// use string map not tree for simplity
-	routesGet map[string]func(ctx *Context)
-	routesPost map[string]func(ctx *Context)
+	routesGet map[string]HandlersChain
+	routesPost map[string]HandlersChain
 
 	pool   sync.Pool
 }
@@ -23,8 +23,8 @@ func NewEngine() *Engine {
 		RouteGroup: RouteGroup{
 			Base:           "",
 		},
-		routesGet:make(map[string]func(ctx *Context)),
-		routesPost:make(map[string]func(ctx *Context)),
+		routesGet:make(map[string]HandlersChain),
+		routesPost:make(map[string]HandlersChain),
 	}
 	// that's weird
 	e.RouteGroup.engine = e
@@ -48,7 +48,10 @@ func (e *Engine) allocateContext() *Context {
 }
 
 func (e *Engine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	//fmt.Println("new request")
+
 	ctx := e.pool.Get().(*Context)
+	ctx.reset()
 	ctx.request = r
 	ctx.responseWriter = w
 
@@ -60,10 +63,8 @@ func (e *Engine) handle(ctx *Context) {
 	path := ctx.request.URL.Path
 	method := ctx.request.Method
 
-	fmt.Printf("method: %v, path: %v\n",method,path)
-
 	// simple implement
-	var handlers map[string]func(*Context)
+	var handlers map[string]HandlersChain
 	switch method{
 	case "GET":
 		handlers = e.routesGet
@@ -72,13 +73,14 @@ func (e *Engine) handle(ctx *Context) {
 	default:
 		panic("unknown method")
 	}
-	handler ,ok := handlers[path]
+	handlersChain ,ok := handlers[path]
 	if !ok{
 		ctx.responseWriter.WriteHeader(404)
 		return
 	}
+	ctx.handlers = handlersChain
 
-	handler(ctx)
+	ctx.Next()
 }
 
 func (e *Engine) Run(addr string) {
